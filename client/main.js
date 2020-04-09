@@ -1,11 +1,13 @@
-const READ_TIMEOUT = 4 * 1000
+const READ_TIMEOUT = 10 * 1000
 
 const logPre = document.querySelector("#log")
 
 const log = msg =>
   (logPre.textContent += `${new Date().toLocaleTimeString()} ${msg}\n`)
 
-const socket = new WebSocket(`wss://${location.host}/server`)
+const socket = new WebSocket(
+  `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/server`,
+)
 
 const eventTypes = ["close", "error", "open"]
 for (let i = 0; i < eventTypes.length; i++) {

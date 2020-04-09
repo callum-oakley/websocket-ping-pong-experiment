@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,64 +14,53 @@ import (
 )
 
 const (
-	pingInterval = 2 * time.Second
-	readTimeout  = 2 * pingInterval
-	writeTimeout = pingInterval
+	pingInterval = 5 * time.Second
+	readTimeout  = 10 * time.Second
+	writeTimeout = 10 * time.Second
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+var upgrader = websocket.Upgrader{}
+
+type connection struct {
+	ws    *websocket.Conn
+	timer *time.Timer
 }
 
-func protocolPingLoop(conn *websocket.Conn) error {
+func (c *connection) pingLoop(ctx context.Context) error {
 	for n := 0; ; n++ {
-		<-time.After(pingInterval)
-		if err := conn.WriteControl(
-			websocket.PingMessage,
-			[]byte(strconv.Itoa(n)),
-			time.Now().Add(writeTimeout),
-		); err != nil {
-			return fmt.Errorf("protocolPingLoop: %w", err)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			message := strconv.Itoa(n)
+			c.ws.SetWriteDeadline(time.Now().Add(writeTimeout))
+			if err := c.ws.WriteMessage(
+				websocket.TextMessage,
+				[]byte(message),
+			); err != nil {
+				return fmt.Errorf("pingLoop: WriteMessage %w", err)
+			}
+			log.Printf("sent ping %s", message)
+			<-time.After(pingInterval)
 		}
 	}
 }
 
-func applicationPingLoop(conn *websocket.Conn) error {
-	for n := 0; ; n++ {
-		<-time.After(pingInterval)
-		message := strconv.Itoa(n)
-		if err := conn.WriteMessage(
-			websocket.TextMessage,
-			[]byte(message),
-		); err != nil {
-			return fmt.Errorf("applicationPingLoop: %w", err)
-		}
-		log.Printf("sent application ping %s", message)
-	}
-}
-
-func readLoop(conn *websocket.Conn) error {
+func (c *connection) readLoop(ctx context.Context) error {
 	for {
-		if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
-			return fmt.Errorf("readLoop: SetReadDeadline: %w", err)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			c.ws.SetReadDeadline(time.Now().Add(readTimeout))
+			_, message, err := c.ws.ReadMessage()
+			if err != nil {
+				return fmt.Errorf("readLoop: ReadMessage: %w", err)
+			}
+			log.Printf("received pong %s", message)
+			c.timer.Reset(readTimeout)
 		}
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			return fmt.Errorf("readLoop: ReadMessage: %w", err)
-		}
-		log.Printf("received application pong %s", message)
 	}
-}
-
-func pingHandler(appData string) error {
-	log.Printf("received protocol ping %s", appData)
-	return nil
-}
-
-func pongHandler(appData string) error {
-	log.Printf("received protocol pong %s", appData)
-	return nil
 }
 
 func handleWS(w http.ResponseWriter, r *http.Request) {
@@ -81,17 +71,25 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	conn.SetPingHandler(pingHandler)
-	conn.SetPongHandler(pongHandler)
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	c := &connection{
+		ws: conn,
+		timer: time.AfterFunc(readTimeout, func() {
+			log.Println("read timeout")
+			cancel()
+		}),
+	}
 
 	var g errgroup.Group
-	// g.Go(func() error { return protocolPingLoop(conn) })
-	g.Go(func() error { return applicationPingLoop(conn) })
-	g.Go(func() error { return readLoop(conn) })
+	g.Go(func() error { return c.pingLoop(ctx) })
+	g.Go(func() error { return c.readLoop(ctx) })
 
 	if err := g.Wait(); err != nil {
 		log.Println("error:", err)
 	}
+	log.Println("closing connection")
 }
 
 func main() {
