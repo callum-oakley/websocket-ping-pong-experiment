@@ -28,9 +28,6 @@ type connection struct {
 
 func (c *connection) pingLoop(ctx context.Context) error {
 	for n := 0; ; n++ {
-		if n > 4 {
-			panic("goodbye")
-		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
