@@ -15,16 +15,16 @@ for (let i = 0; i < eventTypes.length; i++) {
   socket.addEventListener(eventType, e => log(eventType))
 }
 
-const onTimeout = () => {
-  socket.close()
-  log("timed out waiting for message")
-}
+// const onTimeout = () => {
+//   socket.close()
+//   log("timed out waiting for message")
+// }
 
-let timer = setTimeout(onTimeout, READ_TIMEOUT)
+// let timer = setTimeout(onTimeout, READ_TIMEOUT)
 
 socket.addEventListener("message", e => {
   log(`received ping, sending pong ${e.data}`)
   socket.send(e.data) // pong
-  clearTimeout(timer)
-  timer = setTimeout(onTimeout, READ_TIMEOUT)
+  // clearTimeout(timer)
+  // timer = setTimeout(onTimeout, READ_TIMEOUT)
 })
