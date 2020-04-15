@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -27,20 +26,26 @@ type connection struct {
 }
 
 func (c *connection) pingLoop(ctx context.Context) error {
+	c.ws.SetWriteDeadline(time.Now().Add(writeTimeout))
+	if err := c.ws.WriteMessage(
+		websocket.TextMessage,
+		[]byte(fmt.Sprintf(`{ "read_timeout": %v }`, readTimeout.Seconds())),
+	); err != nil {
+		return fmt.Errorf("pingLoop: WriteMessage %w", err)
+	}
 	for n := 0; ; n++ {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			message := strconv.Itoa(n)
 			c.ws.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if err := c.ws.WriteMessage(
 				websocket.TextMessage,
-				[]byte(message),
+				[]byte(fmt.Sprintf(`{ "ping": %v }`, n)),
 			); err != nil {
 				return fmt.Errorf("pingLoop: WriteMessage %w", err)
 			}
-			log.Printf("sent ping %s", message)
+			log.Printf("sent ping %v", n)
 			<-time.After(pingInterval)
 		}
 	}

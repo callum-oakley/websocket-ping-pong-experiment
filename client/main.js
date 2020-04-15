@@ -1,5 +1,3 @@
-const READ_TIMEOUT = 10 * 1000
-
 const logPre = document.querySelector("#log")
 
 const log = msg =>
@@ -20,11 +18,17 @@ const onTimeout = () => {
   socket.close()
 }
 
-let timer = setTimeout(onTimeout, READ_TIMEOUT)
+let readTimeout
+let timer
 
 socket.addEventListener("message", e => {
-  log(`received ping, sending pong ${e.data}`)
-  socket.send(e.data) // pong
+  const data = JSON.parse(e.data)
+  if (data.read_timeout) {
+    readTimeout = data.read_timeout * 1000
+  } else if (data.ping != undefined) {
+    log(`received ping, sending pong ${data.ping}`)
+    socket.send(JSON.stringify({ pong: data.ping }))
+  }
   clearTimeout(timer)
-  timer = setTimeout(onTimeout, READ_TIMEOUT)
+  timer = setTimeout(onTimeout, readTimeout)
 })
